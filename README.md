@@ -27,6 +27,7 @@ The project is organized into three folders that contain the following scripts:
 
 ### Packages
 Python Version: 3.9.7
+
 To install all necessary packages, run `pip install -r requirements.txt`
 
 ### Licensing
