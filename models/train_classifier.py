@@ -9,10 +9,10 @@ from nltk.stem.wordnet import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.multioutput import MultiOutputClassifier
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, make_scorer, f1_score
 
 nltk.download('punkt')
 nltk.download('wordnet')
@@ -92,11 +92,9 @@ def tokenize(text):
 def build_model():
 
     """
-    Builds a pipeline that applies the following steps
-    to the dataset:
-    - customized CountVectorizer transformer;
-    - TfidfTransformer;
-    - tuned RandomForestClassifier classifier.
+    Builds a pipeline that combines customized CountVectorizer,
+    TfidfTransformer, and RandomForestClassifier and instantiates
+    a GridSearchCV object with a given parameters grid.
 
     Parameters
     ----------
@@ -104,10 +102,12 @@ def build_model():
 
     Returns
     -------
-    model -> Pipeline object.
+    grid -> GridSearchCV object.
     """
 
-    rf = RandomForestClassifier(random_state=17, n_estimators=50, max_depth=10, max_samples=0.8, max_features=0.8)
+    f1_samples = make_scorer(f1_score, average='samples', zero_division=0)
+
+    rf = RandomForestClassifier(random_state=17)
 
     model = Pipeline([
         ('vect', CountVectorizer(tokenizer=tokenize)),
@@ -115,19 +115,29 @@ def build_model():
         ('clf', MultiOutputClassifier(rf))
     ])
 
-    return model
+    params = {
+        'clf__estimator__n_estimators': [10, 20],
+        'clf__estimator__max_depth': [10, 20],
+        'clf__estimator__max_samples': [0.8, 1],
+        'clf__estimator__max_features': [0.8, 1]
+    }
+
+    grid = GridSearchCV(model, params, cv=3, scoring=f1_samples, n_jobs=-1)
+
+    return grid
 
 
-def evaluate_model(model, X_test, y_test, category_names):
+def evaluate_model(grid, X_test, y_test, category_names):
 
     """
-    Uses a pipeline to predict labels in the test messages
-    dataset and prints classification report for each category.
+    Uses the best estimator chosen by the GridSearchCV to predict
+    labels in the test messages dataset and prints classification
+    report for each category.
 
     Parameters
     ----------
-    model: Pipeline -> The pipeline object to be used for
-        predictions;
+    grid: GridSearchCV object -> The GridSearchCV object instantiated
+        and fitted previously;
     X_test: Series -> Series containing disaster related messages;
     y_test: DataFrame -> DataFrame containing the data about
         messages categories;
@@ -136,25 +146,28 @@ def evaluate_model(model, X_test, y_test, category_names):
 
     Returns
     -------
-    None.
+    best_model -> Pipelone object selected by GridSearchCV.
     """
 
-    y_pred = model.predict(X_test)
+    best_model = grid.best_estimator_
+
+    y_pred = best_model.predict(X_test)
     y_pred_df = pd.DataFrame(y_pred, columns=category_names)
 
     for category in category_names:
         report = classification_report(y_test[category], y_pred_df[category], zero_division=0)
         print(category, report)
 
+    return best_model
 
-def save_model(model, model_filepath):
+def save_model(best_model, model_filepath):
 
     """
     Saves a pipeline as a pickle object.
 
     Parameters
     ----------
-    model: Pipeline -> The pipeline object to be used for
+    best_model: Pipeline -> The pipeline object to be used for
         predictions;
     model_filepath: string -> The name of and the path to
         the pickle file to be saved.
@@ -164,7 +177,7 @@ def save_model(model, model_filepath):
     None.
     """
 
-    joblib.dump(model, model_filepath)
+    joblib.dump(best_model, model_filepath)
 
 
 def main():
@@ -173,11 +186,11 @@ def main():
     Applies the previously defined functions to:
     - load X, y, and category_names variables from the dataset;
     - split X and y into train and test sets;
-    - build the pipeline;
-    - train the pipeline on X_train and y_train;
-    - prints the evaluation results of the predictions on X_test
-      using the pipeline;
-    - saves the pipeline as a pickle file.
+    - build the pipeline and instantiate GridSearchCV object;
+    - train the GridSearchCV object on X_train and y_train;
+    - select the best pipeline and print the evaluation results
+      of the predictions on X_test using the best pipeline;
+    - save the best pipeline as a pickle file.
 
     Parameters
     ----------
@@ -195,16 +208,16 @@ def main():
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25)
 
         print('Building model...')
-        model = build_model()
+        grid = build_model()
 
         print('Training model...')
-        model.fit(X_train, y_train)
+        grid.fit(X_train, y_train)
 
         print('Evaluating model...')
-        evaluate_model(model, X_test, y_test, category_names)
+        best_model = evaluate_model(grid, X_test, y_test, category_names)
 
         print('Saving model...\n    MODEL: {}'.format(model_filepath))
-        save_model(model, model_filepath)
+        save_model(best_model, model_filepath)
 
         print('Trained model saved!')
 
